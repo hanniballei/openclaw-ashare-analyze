@@ -1,0 +1,4 @@
+interface:
+  display_name: "A-Share Analyze"
+  short_description: "Analyze A-shares, ETFs, and market setups"
+  default_prompt: "Use $ashare-analyze to analyze this A-share, ETF, or market question with live data and clear price levels."
