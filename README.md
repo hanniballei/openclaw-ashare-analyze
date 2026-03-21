@@ -1,7 +1,7 @@
 # ashare-analyze
 
-这是 `ashare-analyze` skill 的目录说明文档。  
-skill 本体定义位于 [SKILL.md](/root/hannibal/ashare-analyze/ashare-skill/ashare-analyze/SKILL.md)，本文件用于说明这个 skill 的目录结构、安装方式、运行命令、测试方式和当前验证状态。
+这是 `ashare-analyze` skill 的使用说明文档。  
+skill 本体定义位于 [SKILL.md](/root/hannibal/ashare-analyze/ashare-skill/ashare-analyze/SKILL.md)，本文件主要面向使用者，说明这个 skill 能做什么、如何安装、如何配置和如何运行。
 
 ## 目录说明
 
@@ -24,7 +24,7 @@ ashare-analyze/
 │   ├── analyze_us_stock.py
 │   ├── stock_picker.py
 │   └── common/
-└── tests/
+└── tests/                 # 本地验证用，可选
 ```
 
 ## Skill 目标
@@ -39,6 +39,16 @@ ashare-analyze/
 - 从 ETF 成分股中进行选股和排序
 
 脚本层输出的是结构化 JSON，供上层模型进一步组织成自然语言回答。
+
+## 快速开始
+
+如果你只是想尽快用起来，按下面顺序操作：
+
+1. 创建并激活本地 Python 环境
+2. 安装 `requirements.txt`
+3. 配置 `RQDATA_*` 环境变量
+4. 运行对应场景脚本
+5. 读取 JSON 输出，或交给上层模型组织成自然语言回答
 
 ## 支持场景
 
@@ -72,10 +82,6 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-当前目录已经安装过一份本地环境：
-
-- `/root/hannibal/ashare-analyze/ashare-skill/ashare-analyze/.venv`
-
 ## 环境变量
 
 ### A 股相关场景必须
@@ -83,17 +89,19 @@ pip install -r requirements.txt
 需要提前配置 RQData：
 
 ```bash
-export RQDATA_PRIMARY_URI='tcp://license:<your_license_key>@rqdatad-pro.ricequant.com:16011'
+export RQDATA_PRIMARY_URI='tcp://<your_username>:<your_license_key>@<your_rqdata_host>:<your_rqdata_port>'
 ```
 
 可选备用连接：
 
 ```bash
-export RQDATA_BACKUP_USERNAME='license'
+export RQDATA_BACKUP_USERNAME='<your_backup_username>'
 export RQDATA_BACKUP_PASSWORD='<your_backup_license_key>'
-export RQDATA_BACKUP_HOST='rqdatad-pro.ricequant.com'
-export RQDATA_BACKUP_PORT='16011'
+export RQDATA_BACKUP_HOST='<your_backup_host>'
+export RQDATA_BACKUP_PORT='<your_backup_port>'
 ```
+
+如果你的部署方式不是通过环境变量注入，也可以把这些值写入你自己的启动脚本或服务器配置系统中。关键是脚本运行时这些变量必须可见。
 
 ### 美股场景
 
@@ -159,6 +167,23 @@ python scripts/stock_picker.py --query "从159625里挑几只强势股" --top 3 
 python scripts/stock_picker.py --query "从嘉实国证绿色电力ETF里挑3只强势股" --top 3 --compact
 ```
 
+## 输出说明
+
+这些脚本的直接输出是 JSON，而不是最终面向投资者的自然语言结论。
+
+- 如果你直接在终端运行脚本，看到的是结构化 JSON
+- 如果你在上层 agent / LLM 中使用这个 skill，通常应当由模型基于 JSON 再组织成最终中文分析
+
+不同场景的 JSON 形态略有区别：
+
+- 个股、ETF、交易策略、美股分析：以单标的分析字段为主
+- 大盘概览：以指数、市场情绪、板块、北向资金为主
+- 选股筛选：以排序结果和打分理由为主
+
+详细字段请看：
+
+- [references/data-contracts.md](/root/hannibal/ashare-analyze/ashare-skill/ashare-analyze/references/data-contracts.md)
+
 ## 测试与校验
 
 ### Skill 结构校验
@@ -185,7 +210,7 @@ python -m compileall .
 
 ## 当前测试状态
 
-截至本次构建，已完成：
+当前版本已经完成以下验证：
 
 - skill 结构校验通过
 - 单元测试通过
@@ -207,6 +232,13 @@ python -m compileall .
 - `akshare` 作为补充数据源，速度和稳定性弱于 `rqdatac`，个别资金流、龙虎榜、板块字段可能为空或偏慢
 - 高歧义中文简称仍可能需要进一步做 disambiguation
 - 当前输出以 JSON 为核心事实层，上层模型仍需负责把 JSON 组织成自然语言分析
+
+## 对用户的建议
+
+- 如果你是第一次部署，先跑 `analyze_stock.py` 和 `analyze_market.py` 做连通性检查
+- 如果你主要做 A 股分析，优先确认 `RQDATA_PRIMARY_URI` 是否生效
+- 如果你主要做美股分析，只要 Python 依赖安装完整即可，不依赖 RQData
+- 如果你要把这个 skill 接到上层问答系统，建议让上层模型把 JSON 转成自然语言，不要直接把 JSON 原样展示给终端用户
 
 ## 相关文件
 
