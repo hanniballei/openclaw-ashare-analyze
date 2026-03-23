@@ -10,7 +10,6 @@ Main packages:
 
 - `rqdatac`
 - `yfinance`
-- `akshare`
 - `python-dotenv`
 
 The helper scripts in `scripts/common/` are lazy-loading. Importing them does not require every data package, but executing a source-specific fetch path does.
@@ -43,29 +42,24 @@ export RQDATA_BACKUP_PORT='16011'
 | A-share price bars | `rqdatac.get_price()` | none | Required for stock, ETF, strategy, and market scripts |
 | ETF metadata | `rqdatac.instruments()` | `rqdatac.index_components()` | Components depend on whether the tracking index can be resolved |
 | A-share fundamentals | `rqdatac.get_factor()` | none | Script fetches one factor at a time to keep parsing simple |
+| Money flow | `rqdatac.get_capital_flow()` | none | Mapped to `today_net` and rolling `5day_net` |
+| 龙虎榜 | `rqdatac.get_abnormal_stocks_detail()` | none | Uses detail rows to expose date, reason, amount, and trader |
+| 北向资金 | `rqdatac.current_stock_connect_quota()` | `rqdatac.get_stock_connect_quota()` | Uses `hk_to_sh` + `hk_to_sz` buy/sell turnover delta |
 | US price bars | `yfinance.Ticker().history()` | none | Intraday coverage is best-effort |
-| Money flow | `akshare.stock_individual_fund_flow_rank()` | none | Uses `今日` and `5日` snapshots |
-| 龙虎榜 | `akshare.stock_lhb_detail_em()` | `akshare.stock_lhb_stock_statistic_em()` | Script tolerates missing rows |
-| A-share breadth | `akshare.stock_zh_a_spot_em()` | none | Counts positive, negative, and near limit-up / limit-down movers |
-| Sector ranking | `akshare.stock_board_industry_name_em()` | `akshare.stock_board_industry_spot_em()` | Returns leaders and laggards |
-| 北向资金 | `akshare.stock_hsgt_north_net_flow_in_em()` | `akshare.stock_hsgt_fund_flow_summary_em()` | First available method wins |
 
 ## Known limitations
 
 - `rqdatac` does not expose native `4h` bars for A-shares. This skill aggregates every four `60m` bars into one `4h` bar.
+- `rqdatac` does not provide direct market-breadth or sector-ranking endpoints in the shape this skill previously used, so those fields were removed from the market overview payload.
 - `yfinance` intraday data windows are limited and can be sparse for older periods or certain symbols. When the returned `60m` bars are insufficient, keep the JSON valid but acknowledge the gap in the final answer.
-- `akshare` community endpoints change more often than `rqdatac`. The client wrappers therefore use best-effort method detection and return partial data instead of crashing the whole analysis.
 
 ## Official references used for this skill
 
 - RiceQuant RQData docs: https://www.ricequant.com/doc/rqdata/python/manual
 - RiceQuant index docs: https://www.ricequant.com/doc/rqdata/python/ricequant-index
 - yfinance official repository: https://github.com/ranaroussi/yfinance
-- AKShare stock docs: https://akshare.akfamily.xyz/data/stock/stock.html
-- AKShare quick start: https://akshare.akfamily.xyz/tutorial.html
 
 ## Operational guidance
 
 - Treat `rqdatac` as mandatory for China-market scenarios. Do not fake China-market analysis when it is unavailable.
-- Treat `akshare` enrichments as optional. Continue if quote, indicator, and fundamentals data are already valid.
 - Prefer partial payloads with explicit nulls over dropping keys entirely.

@@ -2,5 +2,4 @@ rqdatac>=2.0
 pandas>=1.5,<3.0
 numpy>=1.21,<2.0
 yfinance>=0.2
-akshare>=1.18
 python-dotenv>=1.0

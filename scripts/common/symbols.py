@@ -81,9 +81,7 @@ def extract_symbol_token(query: str) -> Optional[str]:
     if match:
         return normalize_cn_symbol(match.group(0))
 
-    candidates = re.findall(r"\b[A-Za-z][A-Za-z\.-]{0,5}\b", query)
-    for candidate in candidates:
-        token = candidate.upper()
+    for token in _extract_us_ticker_candidates(query):
         if token in US_TICKER_STOPWORDS:
             continue
         if token in {"XSHG", "XSHE"}:
@@ -95,6 +93,32 @@ def extract_symbol_token(query: str) -> Optional[str]:
             return symbol
 
     return None
+
+
+def _extract_us_ticker_candidates(query: str) -> list[str]:
+    matches = re.findall(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z\.-]{0,5}(?![A-Za-z0-9])", query)
+    normalized: list[tuple[str, str]] = []
+    for candidate in matches:
+        token = candidate.upper()
+        if token in US_TICKER_STOPWORDS or token in {"XSHG", "XSHE"}:
+            continue
+        normalized.append((candidate, token))
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for selector in (
+        lambda item: item[0].isupper(),
+        lambda item: not item[0].islower(),
+        lambda item: True,
+    ):
+        for candidate, token in normalized:
+            if not selector((candidate, token)):
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            ordered.append(token)
+    return ordered
 
 
 def detect_scenario(query: str) -> str:

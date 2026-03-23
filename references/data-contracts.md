@@ -2,21 +2,20 @@
 
 Use this file when you need exact output keys or want to keep fields stable across scenarios.
 
-## 1. Stock-like payloads
+## 1. China stock-like payloads
 
-The following scripts share the same base shape:
+The following scripts share the same China-market base shape:
 
 - `scripts/analyze_stock.py`
 - `scripts/analyze_etf.py`
 - `scripts/trading_strategy.py`
-- `scripts/analyze_us_stock.py` for the `stock` section when a specific US ticker is supplied
 
 ### Base keys
 
 | Key | Type | Notes |
 | --- | --- | --- |
-| `scenario` | string | One of `STOCK_ANALYZE`, `ETF_ANALYZE`, `TRADING_STRATEGY`, `US_STOCK` |
-| `symbol` | string | Normalized ticker such as `600875.XSHG`, `159206.XSHE`, or `NVDA` |
+| `scenario` | string | One of `STOCK_ANALYZE`, `ETF_ANALYZE`, `TRADING_STRATEGY` |
+| `symbol` | string | Normalized ticker such as `600875.XSHG` or `159206.XSHE` |
 | `name` | string | Instrument display name |
 | `timestamp` | string | Timestamp from the latest bar |
 | `current_price` | number | Latest close |
@@ -32,7 +31,6 @@ The following scripts share the same base shape:
 | `price_levels` | object | `support`, `resistance` |
 | `fundamentals` | object | Valuation, profitability, and growth |
 | `money_flow` | object | `today_net`, `5day_net`, `source` |
-| `billboard` | array | Recent龙虎榜 rows; empty array when unavailable |
 
 ### Indicator section
 
@@ -61,13 +59,23 @@ The following scripts share the same base shape:
 }
 ```
 
-## 2. ETF-only additions
+## 2. Stock-only additions
+
+`scripts/analyze_stock.py` adds:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `billboard` | array | Recent龙虎榜 detail rows |
+
+## 3. ETF-only additions
 
 `scripts/analyze_etf.py` adds:
 
 | Key | Type | Notes |
 | --- | --- | --- |
 | `etf_details` | object | `tracking_index`, `fund_scale`, `components` |
+
+ETF payloads do not include `billboard`.
 
 `components` is an array of:
 
@@ -79,7 +87,7 @@ The following scripts share the same base shape:
 }
 ```
 
-## 3. Market overview payload
+## 4. Market overview payload
 
 `scripts/analyze_market.py` returns:
 
@@ -88,8 +96,6 @@ The following scripts share the same base shape:
 | `scenario` | string | `MARKET_OVERVIEW` |
 | `timestamp` | string | Latest available market snapshot timestamp |
 | `indices` | object | `shanghai`, `shenzhen`, `chinext` |
-| `market_breadth` | object | `up_count`, `down_count`, `flat_count`, `limit_up_count`, `limit_down_count` |
-| `sector_performance` | object | `leaders`, `laggards` |
 | `northbound_flow` | object | `today_net`, `source` |
 
 Each index summary includes:
@@ -106,7 +112,7 @@ Each index summary includes:
 }
 ```
 
-## 4. Trading strategy payload
+## 5. Trading strategy payload
 
 `scripts/trading_strategy.py` returns the full stock-like payload plus:
 
@@ -114,6 +120,8 @@ Each index summary includes:
 | --- | --- | --- |
 | `position` | object | Parsed user position |
 | `strategy` | object | Action levels and explanation |
+
+Trading-strategy payloads also include `billboard`.
 
 Strategy shape:
 
@@ -127,7 +135,7 @@ Strategy shape:
 }
 ```
 
-## 5. Stock picker payload
+## 6. Stock picker payload
 
 `scripts/stock_picker.py` returns:
 
@@ -156,3 +164,17 @@ Each ranking item includes:
   "reasons": ["站上 MA20", "盈利增速为正"]
 }
 ```
+
+## 7. US stock payload
+
+`scripts/analyze_us_stock.py` returns:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `scenario` | string | `US_STOCK` |
+| `query` | string | Original user query |
+| `timestamp` | string | Timestamp from the Nasdaq index payload |
+| `indices` | object | `道琼斯`, `标普`, `纳斯达克` |
+| `stock` | object | Present only when a specific US ticker is resolved |
+
+The optional `stock` object includes quote, indicators, price levels, and fundamentals, but does not include China-only `money_flow` or `billboard` fields.

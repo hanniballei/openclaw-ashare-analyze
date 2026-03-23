@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict, List, Optional
 
-from .akshare_client import AkshareClient
 from .formatters import change_pct, to_json
 from .indicators import compute_indicator_snapshot
 from .models import Candle, InstrumentMatch, PositionInput, SkillRuntimeError
@@ -16,22 +15,19 @@ from .yfinance_client import YFinanceClient
 
 def analyze_stock_request(query: str, symbol: Optional[str] = None, bars: int = 90) -> Dict[str, Any]:
     rqdata = RQDataClient()
-    akshare = AkshareClient()
     instrument = rqdata.resolve_instrument(symbol or query, instrument_type="CS")
-    payload = _build_cn_asset_payload("STOCK_ANALYZE", instrument, rqdata, akshare, bars)
+    payload = _build_cn_asset_payload("STOCK_ANALYZE", instrument, rqdata, bars)
     payload["name"] = _clean_name(payload["name"], query)
     return payload
 
 
 def analyze_etf_request(query: str, symbol: Optional[str] = None, bars: int = 90) -> Dict[str, Any]:
     rqdata = RQDataClient()
-    akshare = AkshareClient()
     instrument = rqdata.resolve_instrument(symbol or query, instrument_type="ETF")
     payload = _build_cn_asset_payload(
         "ETF_ANALYZE",
         instrument,
         rqdata,
-        akshare,
         bars,
         include_fundamentals=False,
         include_billboard=False,
@@ -43,7 +39,6 @@ def analyze_etf_request(query: str, symbol: Optional[str] = None, bars: int = 90
 
 def analyze_market_request(query: str, bars: int = 90) -> Dict[str, Any]:
     rqdata = RQDataClient()
-    akshare = AkshareClient()
     indices = {
         "shanghai": InstrumentMatch(symbol="000001.XSHG", name="上证指数", instrument_type="INDX"),
         "shenzhen": InstrumentMatch(symbol="399001.XSHE", name="深证成指", instrument_type="INDX"),
@@ -70,9 +65,7 @@ def analyze_market_request(query: str, bars: int = 90) -> Dict[str, Any]:
         "query": query,
         "timestamp": timestamp,
         "indices": summaries,
-        "market_breadth": akshare.fetch_market_breadth(),
-        "sector_performance": akshare.fetch_sector_performance(),
-        "northbound_flow": akshare.fetch_northbound_flow(),
+        "northbound_flow": rqdata.fetch_northbound_flow(),
     }
 
 
@@ -233,7 +226,6 @@ def _build_cn_asset_payload(
     scenario: str,
     instrument: InstrumentMatch,
     rqdata: RQDataClient,
-    akshare: AkshareClient,
     bars: int,
     include_fundamentals: bool = True,
     include_billboard: bool = True,
@@ -268,8 +260,8 @@ def _build_cn_asset_payload(
         },
         "price_levels": find_price_levels(candles_daily),
         "fundamentals": rqdata.fetch_fundamentals(instrument.symbol) if include_fundamentals else _empty_fundamentals(),
-        "money_flow": akshare.fetch_money_flow(instrument.symbol),
-        "billboard": akshare.fetch_billboard(instrument.symbol) if include_billboard else [],
+        "money_flow": rqdata.fetch_money_flow(instrument.symbol),
+        "billboard": rqdata.fetch_billboard(instrument.symbol) if include_billboard else [],
     }
 
 
@@ -303,12 +295,6 @@ def _build_us_asset_payload(instrument: InstrumentMatch, yfinance: YFinanceClien
         },
         "price_levels": find_price_levels(candles_daily),
         "fundamentals": yfinance.fetch_basics(instrument.symbol),
-        "money_flow": {
-            "today_net": None,
-            "5day_net": None,
-            "source": "unavailable",
-        },
-        "billboard": [],
     }
 
 

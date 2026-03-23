@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -103,6 +104,118 @@ class RQDataClient:
                 continue
             payload[key] = self._extract_latest_scalar(result)
         return payload
+
+    def fetch_money_flow(self, symbol: str, lookback_days: int = 5) -> Dict[str, Optional[float | str]]:
+        module = self._ensure_module()
+        start_date = (date.today() - timedelta(days=max(lookback_days * 3, 20))).isoformat()
+        end_date = date.today().isoformat()
+        try:
+            table = module.get_capital_flow(
+                order_book_ids=symbol,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception:
+            return {"today_net": None, "5day_net": None, "source": "rqdata"}
+
+        records = self._records(table)
+        if not records:
+            return {"today_net": None, "5day_net": None, "source": "rqdata"}
+
+        nets = [
+            (self._float_or_none(record.get("buy_value")) or 0.0) - (self._float_or_none(record.get("sell_value")) or 0.0)
+            for record in records
+        ]
+        if not nets:
+            return {"today_net": None, "5day_net": None, "source": "rqdata"}
+
+        recent = nets[-lookback_days:]
+        return {
+            "today_net": nets[-1],
+            "5day_net": sum(recent),
+            "source": "rqdata",
+        }
+
+    def fetch_billboard(self, symbol: str, limit: int = 5) -> List[Dict[str, Any]]:
+        module = self._ensure_module()
+        start_date = (date.today() - timedelta(days=30)).isoformat()
+        end_date = date.today().isoformat()
+        try:
+            table = module.get_abnormal_stocks_detail(
+                order_book_ids=symbol,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception:
+            return []
+
+        records = self._records(table)
+        if not records:
+            return []
+
+        records = sorted(
+            records,
+            key=lambda record: (
+                str(record.get("date") or ""),
+                -(int(record.get("rank")) if record.get("rank") is not None else 10**9),
+            ),
+            reverse=True,
+        )
+        return [
+            {
+                "date": self._normalize_date_value(record.get("date")),
+                "type": record.get("reason") or record.get("type"),
+                "amount": self._extract_first_float(record, "buy_value", "sell_value"),
+                "trader": record.get("agency"),
+            }
+            for record in records[:limit]
+        ]
+
+    def fetch_northbound_flow(self) -> Dict[str, Optional[float | str]]:
+        module = self._ensure_module()
+        fetchers = [
+            getattr(module, "current_stock_connect_quota", None),
+            getattr(module, "get_stock_connect_quota", None),
+        ]
+        records: List[Dict[str, Any]] = []
+        for fetcher in fetchers:
+            if fetcher is None:
+                continue
+            try:
+                if fetcher.__name__ == "get_stock_connect_quota":
+                    table = fetcher(
+                        connect=["hk_to_sh", "hk_to_sz"],
+                        start_date=(date.today() - timedelta(days=7)).isoformat(),
+                        end_date=date.today().isoformat(),
+                    )
+                else:
+                    table = fetcher(connect=["hk_to_sh", "hk_to_sz"])
+            except Exception:
+                records = []
+                continue
+            records = self._records(table)
+            if records:
+                break
+
+        if not records:
+            return {"today_net": None, "source": "rqdata"}
+
+        northbound = [record for record in records if str(record.get("connect") or "") in {"hk_to_sh", "hk_to_sz"}]
+        if not northbound:
+            return {"today_net": None, "source": "rqdata"}
+
+        latest_marker = max(str(record.get("datetime") or record.get("date") or record.get("trading_date") or "") for record in northbound)
+        latest_rows = [
+            record
+            for record in northbound
+            if str(record.get("datetime") or record.get("date") or record.get("trading_date") or "") == latest_marker
+        ]
+        today_net = sum(
+            (self._float_or_none(record.get("buy_turnover")) or 0.0)
+            - (self._float_or_none(record.get("sell_turnover")) or 0.0)
+            for record in latest_rows
+        )
+        return {"today_net": today_net, "source": "rqdata"}
 
     def fetch_etf_metadata(self, symbol: str) -> Dict[str, Any]:
         module = self._ensure_module()
@@ -272,15 +385,31 @@ class RQDataClient:
             return []
         if hasattr(table, "to_dict"):
             try:
-                return table.to_dict("records")
-            except TypeError:
+                return table.reset_index().to_dict("records")
+            except Exception:
                 try:
-                    return table.reset_index().to_dict("records")
+                    return table.to_dict("records")
                 except Exception:
                     pass
         if isinstance(table, list):
             return [item for item in table if isinstance(item, dict)]
         return []
+
+    def _extract_first_float(self, record: Dict[str, Any], *keys: str) -> Optional[float]:
+        for key in keys:
+            value = self._float_or_none(record.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def _normalize_date_value(self, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        iso_value = getattr(value, "isoformat", None)
+        if callable(iso_value):
+            raw = iso_value()
+            return raw.split("T", 1)[0]
+        return str(value).split(" ", 1)[0]
 
     def _candles_from_price_table(self, table: Any) -> List[Candle]:
         if table is None:
@@ -363,6 +492,9 @@ class RQDataClient:
         if value in (None, "", "nan"):
             return None
         try:
-            return float(value)
+            result = float(value)
         except (TypeError, ValueError):
             return None
+        if math.isnan(result):
+            return None
+        return result

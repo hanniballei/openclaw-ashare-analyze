@@ -1,6 +1,6 @@
 ---
 name: ashare-analyze
-description: Live-data financial analysis workflow for China A-shares, ETFs, broad-market questions, trading-strategy requests, US equities, and ETF-component screening. Use when a user asks about A股、个股/ETF 代码、大盘走势、建仓/止损/止盈、美股指数或从 ETF 成分股里选股, and Codex should pull fresh market data with rqdatac, yfinance, and akshare, compute indicators, then answer in plain language with concrete price levels and risk reminders.
+description: Live-data financial analysis workflow for China A-shares, ETFs, broad-market questions, trading-strategy requests, US equities, and ETF-component screening. Use when a user asks about A股、个股/ETF 代码、大盘走势、建仓/止损/止盈、美股指数或从 ETF 成分股里选股, and Codex should pull fresh market data with rqdatac and yfinance, compute indicators, then answer in plain language with concrete price levels and risk reminders.
 ---
 
 # A-Share Analyze
@@ -24,7 +24,6 @@ Use this skill to turn fresh market data into investor-friendly explanations. Pu
 3. Check runtime prerequisites before claiming anything.
    - A-share, ETF, market overview, trading strategy, and stock picker require `rqdatac`.
    - US stock analysis requires `yfinance`.
-   - Money-flow,龙虎榜,北向资金, and sector breadth rely on `akshare` as a best-effort supplement.
 4. Run the matching script and read the JSON.
    - `python3 scripts/analyze_stock.py --query "分析通富微电"`
    - `python3 scripts/analyze_etf.py --symbol 159206`
@@ -60,7 +59,7 @@ Use this skill to turn fresh market data into investor-friendly explanations. Pu
 ### Market-wide work
 
 - Use `scripts/analyze_market.py` for Shanghai, Shenzhen, and ChiNext headline conditions.
-- Read [references/data-sources.md](references/data-sources.md) when you need to check where breadth, sectors, or northbound flow come from.
+- Read [references/data-sources.md](references/data-sources.md) when you need to check where index and northbound data come from.
 
 ### Position and action work
 
