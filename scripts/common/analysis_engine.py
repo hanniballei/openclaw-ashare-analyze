@@ -162,6 +162,50 @@ def run_stock_picker_request(query: str, symbol: Optional[str] = None, bars: int
     }
 
 
+def analyze_theme_request(query: str, theme: Optional[str] = None, bars: int = 90, top: int = 5) -> Dict[str, Any]:
+    rqdata = RQDataClient()
+    theme_match = rqdata.resolve_theme(theme or query)
+    components = rqdata.list_theme_components(theme_match, limit=max(top * 3, 15))
+    if not components:
+        raise SkillRuntimeError(f"未获取到主题成分股: {theme_match.name}")
+
+    representative_stocks: List[Dict[str, Any]] = []
+    for component in components:
+        try:
+            representative_stocks.append(_build_theme_component_snapshot(component, rqdata, bars))
+        except SkillRuntimeError:
+            continue
+        if len(representative_stocks) >= top:
+            break
+
+    if not representative_stocks:
+        raise SkillRuntimeError(f"{theme_match.name} 未获取到可用的代表股行情。")
+
+    change_values = [item["change_pct"] for item in representative_stocks if item["change_pct"] is not None]
+    net_flows = [
+        item["money_flow"]["today_net"]
+        for item in representative_stocks
+        if item.get("money_flow", {}).get("today_net") is not None
+    ]
+
+    return {
+        "scenario": "THEME_ANALYZE",
+        "query": query,
+        "theme": theme_match.query,
+        "resolved_theme": theme_match.name,
+        "theme_source": theme_match.source,
+        "timestamp": max(item["timestamp"] for item in representative_stocks),
+        "representative_stocks": representative_stocks,
+        "theme_summary": {
+            "avg_change_pct": (sum(change_values) / len(change_values)) if change_values else None,
+            "up_count": sum(1 for value in change_values if value > 0),
+            "down_count": sum(1 for value in change_values if value < 0),
+            "flat_count": sum(1 for value in change_values if value == 0),
+            "total_net_flow": sum(net_flows) if net_flows else None,
+        },
+    }
+
+
 def main_stock() -> None:
     args = _parse_asset_args("Analyze an A-share stock and emit structured JSON.")
     payload = analyze_stock_request(query=args.query, symbol=args.symbol, bars=args.bars)
@@ -207,6 +251,20 @@ def main_stock_picker() -> None:
     if not args.query and not args.symbol:
         raise SkillRuntimeError("请至少提供 --query 或 --symbol，用于确定 ETF。")
     payload = run_stock_picker_request(query=args.query, symbol=args.symbol, bars=args.bars, top=args.top)
+    print(to_json(payload, pretty=not args.compact))
+
+
+def main_theme() -> None:
+    parser = argparse.ArgumentParser(description="Analyze a China-market theme or concept and emit structured JSON.")
+    parser.add_argument("--query", default="")
+    parser.add_argument("--theme", default="")
+    parser.add_argument("--bars", type=int, default=90)
+    parser.add_argument("--top", type=int, default=5)
+    parser.add_argument("--compact", action="store_true")
+    args = parser.parse_args()
+    if not args.query and not args.theme:
+        raise SkillRuntimeError("请至少提供 --query 或 --theme，用于确定主题。")
+    payload = analyze_theme_request(query=args.query or args.theme, theme=args.theme or None, bars=args.bars, top=args.top)
     print(to_json(payload, pretty=not args.compact))
 
 
@@ -390,6 +448,23 @@ def _clean_name(current_name: str, query: str) -> str:
     if symbol and symbol in CN_INDEX_ALIASES.values():
         return next(alias for alias, code in CN_INDEX_ALIASES.items() if code == symbol)
     return current_name
+
+
+def _build_theme_component_snapshot(instrument: InstrumentMatch, rqdata: RQDataClient, bars: int) -> Dict[str, Any]:
+    candles_daily = rqdata.fetch_candles(instrument.symbol, "1d", bars)
+    latest_bar = latest(candles_daily)
+    previous = latest_bar.prev_close if latest_bar.prev_close is not None else (candles_daily[-2].close if len(candles_daily) > 1 else None)
+    return {
+        "symbol": instrument.symbol,
+        "name": instrument.name,
+        "timestamp": latest_bar.timestamp,
+        "current_price": latest_bar.close,
+        "change_pct": change_pct(latest_bar.close, previous),
+        "indicators": {
+            "daily": compute_indicator_snapshot(candles_daily),
+        },
+        "money_flow": rqdata.fetch_money_flow(instrument.symbol),
+    }
 
 
 def _empty_fundamentals() -> Dict[str, None]:

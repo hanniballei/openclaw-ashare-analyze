@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+import pandas as pd
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from common.rqdata_client import RQDataClient  # noqa: E402
+from common.models import ThemeMatch  # noqa: E402
+
+
+class _RQDataModuleStub:
+    def get_capital_flow(self, order_book_ids, start_date=None, end_date=None, frequency="1d", market="cn"):
+        index = pd.MultiIndex.from_tuples(
+            [
+                ("600875.XSHG", pd.Timestamp("2026-03-20")),
+                ("600875.XSHG", pd.Timestamp("2026-03-21")),
+                ("600875.XSHG", pd.Timestamp("2026-03-22")),
+            ],
+            names=["order_book_id", "date"],
+        )
+        return pd.DataFrame(
+            [
+                {"buy_volume": 1.0, "buy_value": 100.0, "sell_volume": 1.0, "sell_value": 60.0},
+                {"buy_volume": 1.0, "buy_value": 130.0, "sell_volume": 1.0, "sell_value": 90.0},
+                {"buy_volume": 1.0, "buy_value": 80.0, "sell_volume": 1.0, "sell_value": 70.0},
+            ],
+            index=index,
+        )
+
+    def get_abnormal_stocks_detail(self, order_book_ids, start_date=None, end_date=None, sides=None, types=None, market="cn"):
+        index = pd.MultiIndex.from_tuples(
+            [
+                ("600875.XSHG", pd.Timestamp("2026-03-22")),
+                ("600875.XSHG", pd.Timestamp("2026-03-22")),
+            ],
+            names=["order_book_id", "date"],
+        )
+        return pd.DataFrame(
+            [
+                {
+                    "side": "buy",
+                    "rank": 1,
+                    "agency": "沪股通专用",
+                    "buy_value": 123456.0,
+                    "sell_value": None,
+                    "type": "U02",
+                    "reason": "连续三个交易日内，涨幅偏离值累计达20%",
+                },
+                {
+                    "side": "sell",
+                    "rank": 2,
+                    "agency": "机构专用",
+                    "buy_value": None,
+                    "sell_value": 654321.0,
+                    "type": "U02",
+                    "reason": "连续三个交易日内，涨幅偏离值累计达20%",
+                },
+            ],
+            index=index,
+        )
+
+    def current_stock_connect_quota(self, connect=None, fields=None):
+        index = pd.MultiIndex.from_tuples(
+            [
+                (pd.Timestamp("2026-03-23 15:01:00"), "hk_to_sh"),
+                (pd.Timestamp("2026-03-23 15:01:00"), "hk_to_sz"),
+                (pd.Timestamp("2026-03-23 16:10:00"), "sh_to_hk"),
+            ],
+            names=["datetime", "connect"],
+        )
+        return pd.DataFrame(
+            [
+                {"buy_turnover": 100.0, "sell_turnover": 70.0, "quota_balance": 1.0, "quota_balance_ratio": 0.1},
+                {"buy_turnover": 80.0, "sell_turnover": 40.0, "quota_balance": 1.0, "quota_balance_ratio": 0.1},
+                {"buy_turnover": 999.0, "sell_turnover": 1.0, "quota_balance": 1.0, "quota_balance_ratio": 0.1},
+            ],
+            index=index,
+        )
+
+
+class _ThemeRQDataModuleStub:
+    _NAMES = {
+        "600487.XSHG": "亨通光电",
+        "000063.XSHE": "中兴通讯",
+        "600118.XSHG": "中国卫星",
+    }
+
+    def get_concept_list(self, start_date=None, end_date=None, market="cn"):
+        return ["光纤概念", "卫星互联网", "算力概念"]
+
+    def get_concept(self, concepts, start_date=None, end_date=None, market="cn"):
+        mapping = {
+            "光纤概念": ["600487.XSHG", "000063.XSHE"],
+            "卫星互联网": ["600118.XSHG", "000063.XSHE"],
+        }
+        symbols = mapping[concepts]
+        return pd.DataFrame(
+            [{"order_book_id": symbol} for symbol in symbols],
+            index=pd.Index([concepts] * len(symbols), name="concept"),
+        )
+
+    def get_industry_mapping(self, source="citics_2019", date=None, market="cn"):
+        return pd.DataFrame(
+            [
+                {
+                    "first_industry_code": "10",
+                    "first_industry_name": "通信",
+                    "second_industry_code": "1010",
+                    "second_industry_name": "通信设备",
+                    "third_industry_code": "101001",
+                    "third_industry_name": "光通信设备",
+                }
+            ]
+        )
+
+    def instruments(self, symbol):
+        name = self._NAMES[symbol]
+        return type("Instrument", (), {"symbol": name, "display_name": name})()
+
+
+class RQDataClientTest(unittest.TestCase):
+    def test_fetch_money_flow_uses_latest_and_rolling_net(self) -> None:
+        client = RQDataClient()
+        client._module = _RQDataModuleStub()
+
+        result = client.fetch_money_flow("600875.XSHG")
+
+        self.assertEqual(
+            result,
+            {
+                "today_net": 10.0,
+                "5day_net": 90.0,
+                "source": "rqdata",
+            },
+        )
+
+    def test_fetch_billboard_maps_abnormal_detail_rows(self) -> None:
+        client = RQDataClient()
+        client._module = _RQDataModuleStub()
+
+        result = client.fetch_billboard("600875.XSHG")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["date"], "2026-03-22")
+        self.assertEqual(result[0]["type"], "连续三个交易日内，涨幅偏离值累计达20%")
+        self.assertEqual(result[0]["amount"], 123456.0)
+        self.assertEqual(result[0]["trader"], "沪股通专用")
+        self.assertEqual(result[1]["amount"], 654321.0)
+
+    def test_fetch_northbound_flow_sums_hk_to_sh_and_hk_to_sz(self) -> None:
+        client = RQDataClient()
+        client._module = _RQDataModuleStub()
+
+        result = client.fetch_northbound_flow()
+
+        self.assertEqual(result, {"today_net": 70.0, "source": "rqdata"})
+
+    def test_resolve_theme_matches_concept_and_alias_keywords(self) -> None:
+        client = RQDataClient()
+        client._module = _ThemeRQDataModuleStub()
+
+        direct_match = client.resolve_theme("怎么看光纤板块？")
+        self.assertEqual(direct_match, ThemeMatch(query="光纤", name="光纤概念", source="concept"))
+
+        alias_match = client.resolve_theme("A股中卫星通信的公司有哪些头部企业？")
+        self.assertEqual(alias_match, ThemeMatch(query="卫星通信", name="卫星互联网", source="concept"))
+
+    def test_list_theme_components_returns_named_instruments(self) -> None:
+        client = RQDataClient()
+        client._module = _ThemeRQDataModuleStub()
+
+        components = client.list_theme_components(
+            ThemeMatch(query="光纤", name="光纤概念", source="concept"),
+            limit=2,
+        )
+
+        self.assertEqual([component.symbol for component in components], ["600487.XSHG", "000063.XSHE"])
+        self.assertEqual([component.name for component in components], ["亨通光电", "中兴通讯"])
+
+
+if __name__ == "__main__":
+    unittest.main()

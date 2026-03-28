@@ -41,6 +41,7 @@ export RQDATA_BACKUP_PORT='16011'
 | --- | --- | --- | --- |
 | A-share price bars | `rqdatac.get_price()` | none | Required for stock, ETF, strategy, and market scripts |
 | ETF metadata | `rqdatac.instruments()` | `rqdatac.index_components()` | Components depend on whether the tracking index can be resolved |
+| Theme components | `rqdatac.get_concept()` / `rqdatac.get_industry()` | manual representative-stock mapping | Used by `THEME_ANALYZE`; fallback should be labeled clearly |
 | A-share fundamentals | `rqdatac.get_factor()` | none | Script fetches one factor at a time to keep parsing simple |
 | Money flow | `rqdatac.get_capital_flow()` | none | Mapped to `today_net` and rolling `5day_net` |
 | 龙虎榜 | `rqdatac.get_abnormal_stocks_detail()` | none | Uses detail rows to expose date, reason, amount, and trader |
@@ -51,6 +52,7 @@ export RQDATA_BACKUP_PORT='16011'
 
 - `rqdatac` does not expose native `4h` bars for A-shares. This skill aggregates every four `60m` bars into one `4h` bar.
 - `rqdatac` does not provide direct market-breadth or sector-ranking endpoints in the shape this skill previously used, so those fields were removed from the market overview payload.
+- Theme / concept naming in `rqdatac` is not always identical to natural-language user phrasing. Some requests need fuzzy matching or a clearly labeled manual fallback.
 - `yfinance` intraday data windows are limited and can be sparse for older periods or certain symbols. When the returned `60m` bars are insufficient, keep the JSON valid but acknowledge the gap in the final answer.
 
 ## Official references used for this skill

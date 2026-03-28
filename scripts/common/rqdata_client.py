@@ -6,8 +6,15 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .models import Candle, InstrumentMatch, SkillRuntimeError
-from .symbols import CN_INDEX_ALIASES, extract_symbol_token, infer_cn_instrument_type, normalize_cn_symbol
+from .models import Candle, InstrumentMatch, SkillRuntimeError, ThemeMatch
+from .symbols import (
+    CN_INDEX_ALIASES,
+    extract_symbol_token,
+    extract_theme_candidates,
+    extract_theme_query,
+    infer_cn_instrument_type,
+    normalize_cn_symbol,
+)
 
 
 class RQDataClient:
@@ -300,6 +307,52 @@ class RQDataClient:
             )
         return components
 
+    def resolve_theme(self, query: str) -> ThemeMatch:
+        module = self._ensure_module()
+        requested_theme = extract_theme_query(query) or (query or "").strip()
+
+        concept_names = self._theme_name_list(module)
+        concept_match = self._match_theme_name(concept_names, query)
+        if concept_match:
+            return ThemeMatch(query=requested_theme or concept_match, name=concept_match, source="concept")
+
+        industry_match = self._match_industry_name(module, query)
+        if industry_match:
+            return industry_match
+
+        raise SkillRuntimeError(f"未在 RQData 中匹配到主题/板块: {query}")
+
+    def list_theme_components(self, theme: ThemeMatch, limit: int = 20) -> List[InstrumentMatch]:
+        module = self._ensure_module()
+        try:
+            if theme.source == "concept":
+                table = module.get_concept(theme.name)
+            elif theme.source == "industry":
+                table = module.get_industry(theme.name, source=theme.provider or "citics_2019")
+            else:
+                raise SkillRuntimeError(f"暂不支持的主题来源: {theme.source}")
+        except Exception as exc:
+            raise SkillRuntimeError(f"未获取到主题成分股: {theme.name}") from exc
+
+        symbols = self._extract_component_symbols(table)[:limit]
+        if not symbols:
+            return []
+
+        components: List[InstrumentMatch] = []
+        for symbol in symbols:
+            name = symbol
+            try:
+                detail = module.instruments(symbol)
+                name = (
+                    getattr(detail, "symbol", None)
+                    or getattr(detail, "display_name", None)
+                    or symbol
+                )
+            except Exception:
+                name = symbol
+            components.append(InstrumentMatch(symbol=symbol, name=name, instrument_type="CS"))
+        return components
+
     def _ensure_module(self):
         if self._module is not None:
             return self._module
@@ -498,3 +551,96 @@ class RQDataClient:
         if math.isnan(result):
             return None
         return result
+
+    def _theme_name_list(self, module: Any) -> List[str]:
+        fetchers = [getattr(module, "get_concept_list", None), getattr(module, "concept_list", None)]
+        for fetcher in fetchers:
+            if fetcher is None:
+                continue
+            try:
+                result = fetcher()
+            except Exception:
+                continue
+            if isinstance(result, (list, tuple)):
+                return [str(item).strip() for item in result if str(item).strip()]
+            records = self._records(result)
+            values = [str(record.get("concept") or record.get("name") or "").strip() for record in records]
+            filtered = [value for value in values if value]
+            if filtered:
+                return filtered
+        return []
+
+    def _match_theme_name(self, names: List[str], query: str) -> Optional[str]:
+        candidates = extract_theme_candidates(query)
+        normalized_names = [str(name).strip() for name in names if str(name).strip()]
+        if not normalized_names:
+            return None
+
+        for candidate in candidates:
+            exact = next((name for name in normalized_names if name == candidate), None)
+            if exact:
+                return exact
+
+        for candidate in candidates:
+            contained = [name for name in normalized_names if candidate in name or name in candidate]
+            if contained:
+                contained.sort(key=len)
+                return contained[0]
+        return None
+
+    def _match_industry_name(self, module: Any, query: str) -> Optional[ThemeMatch]:
+        requested_theme = extract_theme_query(query) or (query or "").strip()
+        sources = ("citics_2019",)
+        field_candidates = (
+            "third_industry_name",
+            "second_industry_name",
+            "first_industry_name",
+            "industry_name",
+            "name",
+        )
+
+        for provider in sources:
+            try:
+                mapping = module.get_industry_mapping(source=provider)
+            except Exception:
+                continue
+            records = self._records(mapping)
+            names = []
+            for record in records:
+                for field in field_candidates:
+                    value = str(record.get(field) or "").strip()
+                    if value:
+                        names.append(value)
+            matched_name = self._match_theme_name(names, query)
+            if matched_name:
+                return ThemeMatch(query=requested_theme or matched_name, name=matched_name, source="industry", provider=provider)
+        return None
+
+    def _extract_component_symbols(self, table: Any) -> List[str]:
+        if isinstance(table, list) and table and isinstance(table[0], str):
+            return self._dedupe_symbols(table)
+
+        records = self._records(table)
+        symbols: List[str] = []
+        for record in records:
+            symbol = (
+                record.get("order_book_id")
+                or record.get("stockcode")
+                or record.get("symbol")
+                or record.get("index_component")
+            )
+            if not symbol:
+                continue
+            symbols.append(str(symbol))
+        return self._dedupe_symbols(symbols)
+
+    def _dedupe_symbols(self, symbols: List[str]) -> List[str]:
+        ordered: List[str] = []
+        seen: set[str] = set()
+        for symbol in symbols:
+            value = str(symbol).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            ordered.append(value)
+        return ordered

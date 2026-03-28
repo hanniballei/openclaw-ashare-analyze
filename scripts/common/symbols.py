@@ -36,6 +36,66 @@ US_TICKER_STOPWORDS = {
     "USD",
 }
 
+THEME_HINT_KEYWORDS = ("板块", "概念", "主题", "赛道", "产业链")
+
+THEME_KEYWORDS = [
+    "卫星通信",
+    "卫星互联网",
+    "光通信",
+    "光纤",
+    "光模块",
+    "AIDC",
+    "CDN",
+    "算力",
+    "AI",
+    "人工智能",
+    "半导体",
+    "芯片",
+    "机器人",
+    "新能源",
+    "锂电",
+    "光伏",
+    "军工",
+    "医药",
+    "白酒",
+    "银行",
+    "地产",
+    "汽车",
+    "消费电子",
+]
+
+THEME_SYNONYMS = {
+    "卫星通信": ("卫星互联网", "卫星"),
+    "光纤": ("光纤概念", "光通信模块", "光通信"),
+    "光模块": ("光通信模块",),
+    "AI": ("人工智能",),
+    "算力": ("算力概念", "算力租赁"),
+    "半导体": ("第三代半导体", "第四代半导体", "芯片"),
+    "机器人": ("人形机器人", "机器人执行器"),
+}
+
+EVENT_IMPACT_KEYWORDS = ("影响", "映射", "受益", "关联", "带动")
+
+OVERSEAS_MARKERS = ("美股", "海外", "港股", "外盘")
+
+CN_MARKET_MARKERS = ("A股", "a股", "A 股")
+
+THEME_PREFIX_NOISE = (
+    "怎么看",
+    "看下",
+    "看看",
+    "分析",
+    "聊聊",
+    "说说",
+    "请问",
+    "请分析",
+    "A股中",
+    "A股里",
+    "A股",
+    "在A股",
+    "在a股",
+)
+
 
 def normalize_cn_symbol(raw: str) -> Optional[str]:
     if not raw:
@@ -121,12 +181,70 @@ def _extract_us_ticker_candidates(query: str) -> list[str]:
     return ordered
 
 
-def detect_scenario(query: str) -> str:
+def extract_theme_query(query: str) -> Optional[str]:
     text = query or ""
     lower = text.lower()
 
+    extracted = _extract_theme_phrase(text)
+    if extracted:
+        return extracted
+
+    for keyword in sorted(THEME_KEYWORDS, key=len, reverse=True):
+        if keyword.lower() in lower:
+            return keyword
+    return None
+
+
+def extract_theme_candidates(query: str) -> list[str]:
+    text = query or ""
+    lower = text.lower()
+    candidates: list[str] = []
+
+    extracted = extract_theme_query(text)
+    if extracted:
+        candidates.append(extracted)
+
+    for keyword in sorted(THEME_KEYWORDS, key=len, reverse=True):
+        if keyword.lower() in lower:
+            candidates.append(keyword)
+            candidates.extend(THEME_SYNONYMS.get(keyword, ()))
+
+    for keyword, synonyms in THEME_SYNONYMS.items():
+        if any(alias.lower() in lower for alias in synonyms):
+            candidates.append(keyword)
+            candidates.extend(synonyms)
+
+    return _dedupe_nonempty(candidates)
+
+
+def looks_like_theme_query(query: str, symbol: Optional[str] = None) -> bool:
+    text = query or ""
+    lower = text.lower()
+    if "etf" in lower:
+        return False
+    if symbol and symbol.endswith((".XSHG", ".XSHE")):
+        if infer_cn_instrument_type(symbol) in {"CS", "ETF"}:
+            return False
+
+    if any(keyword in text for keyword in THEME_HINT_KEYWORDS):
+        return True
+    return any(keyword.lower() in lower for keyword in THEME_KEYWORDS)
+
+
+def detect_scenario(query: str) -> str:
+    text = query or ""
+    lower = text.lower()
+    symbol = extract_symbol_token(text)
+
     if any(keyword in text for keyword in ("选股", "筛选", "推荐股票", "成分股", "挑几只", "选几只", "选出")):
         return "STOCK_PICKER"
+
+    if any(keyword in text for keyword in EVENT_IMPACT_KEYWORDS):
+        if any(keyword in text for keyword in OVERSEAS_MARKERS) and any(keyword in text for keyword in CN_MARKET_MARKERS):
+            return "EVENT_IMPACT"
+
+    if looks_like_theme_query(text, symbol=symbol):
+        return "THEME_ANALYZE"
 
     if any(keyword in text for keyword in ("建仓", "止损", "止盈", "仓位", "加仓", "减仓", "网格", "怎么操作")):
         return "TRADING_STRATEGY"
@@ -137,7 +255,6 @@ def detect_scenario(query: str) -> str:
     if any(keyword in lower for keyword in ("nyse", "nasdaq", "dow", "sp500")):
         return "US_STOCK"
 
-    symbol = extract_symbol_token(text)
     if symbol and symbol.startswith("^"):
         return "US_STOCK"
     if symbol and re.fullmatch(r"[A-Z][A-Z\.-]{0,5}", symbol):
@@ -207,3 +324,44 @@ def _normalize_date(raw: str) -> str:
     except ValueError:
         return raw
     return value.date().isoformat()
+
+
+def _extract_theme_phrase(query: str) -> Optional[str]:
+    cleaned = re.sub(r"[，。！？、,.:：；?？!！]", "", query or "").strip()
+    if not cleaned:
+        return None
+
+    for marker in THEME_HINT_KEYWORDS:
+        if marker not in cleaned:
+            continue
+        prefix = cleaned.split(marker, 1)[0].strip()
+        prefix = _strip_theme_prefix_noise(prefix)
+        prefix = prefix.strip()
+        if 1 < len(prefix) <= 12:
+            return prefix
+    return None
+
+
+def _strip_theme_prefix_noise(text: str) -> str:
+    value = text.strip()
+    while value:
+        updated = value
+        for prefix in THEME_PREFIX_NOISE:
+            if updated.startswith(prefix):
+                updated = updated[len(prefix):].strip()
+        if updated == value:
+            break
+        value = updated
+    return value
+
+
+def _dedupe_nonempty(values: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        candidate = value.strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered.append(candidate)
+    return ordered

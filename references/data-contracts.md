@@ -135,7 +135,54 @@ Strategy shape:
 }
 ```
 
-## 6. Stock picker payload
+## 6. Theme analyze payload
+
+`scripts/analyze_theme.py` returns:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `scenario` | string | `THEME_ANALYZE` |
+| `query` | string | Original user query |
+| `theme` | string | User-facing theme extracted from the query |
+| `resolved_theme` | string | Canonical theme / concept name matched in `rqdatac` |
+| `theme_source` | string | Usually `concept` or `industry` |
+| `timestamp` | string | Latest timestamp among representative stocks |
+| `representative_stocks` | array | A small representative-stock set for the theme |
+| `theme_summary` | object | Aggregate strength and flow summary |
+
+Each representative stock includes:
+
+```json
+{
+  "symbol": "600487.XSHG",
+  "name": "亨通光电",
+  "timestamp": "2026-03-28 15:00:00",
+  "current_price": 0,
+  "change_pct": 0,
+  "indicators": {
+    "daily": {}
+  },
+  "money_flow": {
+    "today_net": 0,
+    "5day_net": 0,
+    "source": "rqdata"
+  }
+}
+```
+
+Theme summary shape:
+
+```json
+{
+  "avg_change_pct": 0,
+  "up_count": 0,
+  "down_count": 0,
+  "flat_count": 0,
+  "total_net_flow": 0
+}
+```
+
+## 7. Stock picker payload
 
 `scripts/stock_picker.py` returns:
 
@@ -165,7 +212,7 @@ Each ranking item includes:
 }
 ```
 
-## 7. US stock payload
+## 8. US stock payload
 
 `scripts/analyze_us_stock.py` returns:
 

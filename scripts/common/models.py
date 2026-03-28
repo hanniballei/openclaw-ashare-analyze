@@ -36,6 +36,17 @@ class InstrumentMatch:
 
 
 @dataclass
+class ThemeMatch:
+    query: str
+    name: str
+    source: str
+    provider: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class PositionInput:
     shares: Optional[int] = None
     avg_price: Optional[float] = None
