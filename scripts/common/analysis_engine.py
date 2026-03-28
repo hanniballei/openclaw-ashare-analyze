@@ -165,27 +165,39 @@ def run_stock_picker_request(query: str, symbol: Optional[str] = None, bars: int
 def analyze_theme_request(query: str, theme: Optional[str] = None, bars: int = 90, top: int = 5) -> Dict[str, Any]:
     rqdata = RQDataClient()
     theme_match = rqdata.resolve_theme(theme or query)
-    components = rqdata.list_theme_components(theme_match, limit=max(top * 3, 15))
+    component_limit = max(top * 5, 20)
+    components = rqdata.list_theme_components(theme_match, limit=component_limit)
     if not components:
         raise SkillRuntimeError(f"未获取到主题成分股: {theme_match.name}")
 
-    representative_stocks: List[Dict[str, Any]] = []
+    analyzed_components: List[Dict[str, Any]] = []
     for component in components:
         try:
-            representative_stocks.append(_build_theme_component_snapshot(component, rqdata, bars))
+            analyzed_components.append(_build_theme_component_analysis(component, rqdata, bars))
         except SkillRuntimeError:
             continue
-        if len(representative_stocks) >= top:
-            break
 
-    if not representative_stocks:
+    if not analyzed_components:
         raise SkillRuntimeError(f"{theme_match.name} 未获取到可用的代表股行情。")
 
-    change_values = [item["change_pct"] for item in representative_stocks if item["change_pct"] is not None]
+    ranking = sorted(
+        [item["ranking"] for item in analyzed_components],
+        key=lambda item: item["score"],
+        reverse=True,
+    )[:top]
+    for rank, item in enumerate(ranking, start=1):
+        item["rank"] = rank
+
+    representative_stocks = [
+        next(item["snapshot"] for item in analyzed_components if item["snapshot"]["symbol"] == ranking_item["symbol"])
+        for ranking_item in ranking
+    ]
+
+    change_values = [item["snapshot"]["change_pct"] for item in analyzed_components if item["snapshot"]["change_pct"] is not None]
     net_flows = [
-        item["money_flow"]["today_net"]
-        for item in representative_stocks
-        if item.get("money_flow", {}).get("today_net") is not None
+        item["snapshot"]["money_flow"]["today_net"]
+        for item in analyzed_components
+        if item["snapshot"].get("money_flow", {}).get("today_net") is not None
     ]
 
     return {
@@ -195,6 +207,20 @@ def analyze_theme_request(query: str, theme: Optional[str] = None, bars: int = 9
         "resolved_theme": theme_match.name,
         "theme_source": theme_match.source,
         "timestamp": max(item["timestamp"] for item in representative_stocks),
+        "selection_basis": {
+            "bars": bars,
+            "top": top,
+            "component_limit": component_limit,
+            "score_components": [
+                "price_above_ma20",
+                "price_above_ma60",
+                "positive_macd",
+                "healthy_rsi",
+                "positive_revenue_growth",
+                "positive_profit_growth",
+            ],
+        },
+        "ranking": ranking,
         "representative_stocks": representative_stocks,
         "theme_summary": {
             "avg_change_pct": (sum(change_values) / len(change_values)) if change_values else None,
@@ -450,20 +476,38 @@ def _clean_name(current_name: str, query: str) -> str:
     return current_name
 
 
-def _build_theme_component_snapshot(instrument: InstrumentMatch, rqdata: RQDataClient, bars: int) -> Dict[str, Any]:
+def _build_theme_component_analysis(instrument: InstrumentMatch, rqdata: RQDataClient, bars: int) -> Dict[str, Any]:
     candles_daily = rqdata.fetch_candles(instrument.symbol, "1d", bars)
     latest_bar = latest(candles_daily)
     previous = latest_bar.prev_close if latest_bar.prev_close is not None else (candles_daily[-2].close if len(candles_daily) > 1 else None)
+    indicators = compute_indicator_snapshot(candles_daily)
+    money_flow = rqdata.fetch_money_flow(instrument.symbol)
+    fundamentals = rqdata.fetch_fundamentals(instrument.symbol)
+
+    ranking = _score_component(
+        symbol=instrument.symbol,
+        name=instrument.name,
+        latest_bar=latest_bar,
+        previous_close=previous,
+        indicators=indicators,
+        fundamentals=fundamentals,
+    )
+    ranking["today_net_flow"] = money_flow.get("today_net")
+    ranking["5day_net_flow"] = money_flow.get("5day_net")
+
     return {
-        "symbol": instrument.symbol,
-        "name": instrument.name,
-        "timestamp": latest_bar.timestamp,
-        "current_price": latest_bar.close,
-        "change_pct": change_pct(latest_bar.close, previous),
-        "indicators": {
-            "daily": compute_indicator_snapshot(candles_daily),
+        "snapshot": {
+            "symbol": instrument.symbol,
+            "name": instrument.name,
+            "timestamp": latest_bar.timestamp,
+            "current_price": latest_bar.close,
+            "change_pct": change_pct(latest_bar.close, previous),
+            "indicators": {
+                "daily": indicators,
+            },
+            "money_flow": money_flow,
         },
-        "money_flow": rqdata.fetch_money_flow(instrument.symbol),
+        "ranking": ranking,
     }
 
 

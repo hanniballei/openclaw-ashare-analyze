@@ -59,6 +59,27 @@ class _ThemeRQDataStub:
         }
         return flows[symbol]
 
+    def fetch_fundamentals(self, symbol: str):
+        fundamentals = {
+            "600487.XSHG": {
+                "pe_ttm": 10.0,
+                "pb": 2.0,
+                "market_cap": 100.0,
+                "roe_ttm": 0.1,
+                "revenue_growth": 0.2,
+                "profit_growth": 0.3,
+            },
+            "000063.XSHE": {
+                "pe_ttm": 12.0,
+                "pb": 1.8,
+                "market_cap": 90.0,
+                "roe_ttm": 0.08,
+                "revenue_growth": 0.05,
+                "profit_growth": -0.1,
+            },
+        }
+        return fundamentals[symbol]
+
 
 class _YFinanceStub:
     def fetch_candles(self, symbol: str, interval: str, count: int = 90):
@@ -106,9 +127,17 @@ class AnalysisEngineContractsTest(unittest.TestCase):
         self.assertEqual(payload["theme"], "光纤")
         self.assertEqual(payload["resolved_theme"], "光纤概念")
         self.assertEqual(payload["theme_source"], "concept")
+        self.assertIn("selection_basis", payload)
+        self.assertEqual(payload["selection_basis"]["top"], 2)
+        self.assertIn("ranking", payload)
+        self.assertEqual(len(payload["ranking"]), 2)
+        self.assertEqual(payload["ranking"][0]["rank"], 1)
+        self.assertIn("score", payload["ranking"][0])
+        self.assertIn("reasons", payload["ranking"][0])
         self.assertEqual(len(payload["representative_stocks"]), 2)
         self.assertIn("indicators", payload["representative_stocks"][0])
         self.assertIn("money_flow", payload["representative_stocks"][0])
+        self.assertEqual(payload["representative_stocks"][0]["symbol"], payload["ranking"][0]["symbol"])
         self.assertEqual(payload["theme_summary"]["up_count"], 2)
         self.assertEqual(payload["theme_summary"]["down_count"], 0)
         self.assertEqual(payload["theme_summary"]["total_net_flow"], 15.0)

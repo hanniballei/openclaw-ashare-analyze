@@ -22,6 +22,8 @@ class SymbolsTest(unittest.TestCase):
         self.assertEqual(detect_scenario("29.3 建仓 200 股今天怎么操作"), "TRADING_STRATEGY")
         self.assertEqual(detect_scenario("看看 NVDA 和标普"), "US_STOCK")
         self.assertEqual(detect_scenario("怎么看光纤板块？"), "THEME_ANALYZE")
+        self.assertEqual(detect_scenario("分析航空航天版块走势"), "THEME_ANALYZE")
+        self.assertEqual(detect_scenario("推荐航天航空领域的股票"), "THEME_ANALYZE")
         self.assertEqual(detect_scenario("A股中卫星通信的公司有哪些头部企业？"), "THEME_ANALYZE")
         self.assertEqual(detect_scenario("AI、算力、半导体、机器人哪个更强？"), "THEME_ANALYZE")
         self.assertEqual(detect_scenario("现在美股的卫星通信涨疯了，是否对明天的A股有影响？"), "EVENT_IMPACT")

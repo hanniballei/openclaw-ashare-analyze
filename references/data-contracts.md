@@ -147,8 +147,49 @@ Strategy shape:
 | `resolved_theme` | string | Canonical theme / concept name matched in `rqdatac` |
 | `theme_source` | string | Usually `concept` or `industry` |
 | `timestamp` | string | Latest timestamp among representative stocks |
+| `selection_basis` | object | Theme ranking parameters and score components |
+| `ranking` | array | Top-N ranked theme stocks with score and reasons |
 | `representative_stocks` | array | A small representative-stock set for the theme |
 | `theme_summary` | object | Aggregate strength and flow summary |
+
+Selection basis shape:
+
+```json
+{
+  "bars": 90,
+  "top": 5,
+  "component_limit": 25,
+  "score_components": [
+    "price_above_ma20",
+    "price_above_ma60",
+    "positive_macd",
+    "healthy_rsi",
+    "positive_revenue_growth",
+    "positive_profit_growth"
+  ]
+}
+```
+
+Each ranking item includes:
+
+```json
+{
+  "rank": 1,
+  "symbol": "600487.XSHG",
+  "name": "亨通光电",
+  "score": 100.0,
+  "current_price": 0,
+  "change_pct": 0,
+  "ma20": 0,
+  "ma60": 0,
+  "macd_histogram": 0,
+  "revenue_growth": 0,
+  "profit_growth": 0,
+  "today_net_flow": 0,
+  "5day_net_flow": 0,
+  "reasons": ["站上 MA20", "利润增速为正"]
+}
+```
 
 Each representative stock includes:
 

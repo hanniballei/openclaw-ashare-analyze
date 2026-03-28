@@ -91,12 +91,13 @@ class _ThemeRQDataModuleStub:
     }
 
     def get_concept_list(self, start_date=None, end_date=None, market="cn"):
-        return ["光纤概念", "卫星互联网", "算力概念"]
+        return ["光纤概念", "卫星互联网", "算力概念", "航空"]
 
     def get_concept(self, concepts, start_date=None, end_date=None, market="cn"):
         mapping = {
             "光纤概念": ["600487.XSHG", "000063.XSHE"],
             "卫星互联网": ["600118.XSHG", "000063.XSHE"],
+            "航空": ["600118.XSHG", "000063.XSHE"],
         }
         symbols = mapping[concepts]
         return pd.DataFrame(
@@ -169,6 +170,15 @@ class RQDataClientTest(unittest.TestCase):
 
         alias_match = client.resolve_theme("A股中卫星通信的公司有哪些头部企业？")
         self.assertEqual(alias_match, ThemeMatch(query="卫星通信", name="卫星互联网", source="concept"))
+
+        ranked_match = client.resolve_theme("推荐光纤板块 5 只优质股票")
+        self.assertEqual(ranked_match, ThemeMatch(query="光纤", name="光纤概念", source="concept"))
+
+        domain_match = client.resolve_theme("推荐航天航空领域的股票")
+        self.assertEqual(domain_match, ThemeMatch(query="航天航空", name="航空", source="concept"))
+
+        typo_match = client.resolve_theme("分析航空航天版块走势")
+        self.assertEqual(typo_match, ThemeMatch(query="航空航天", name="航空", source="concept"))
 
     def test_list_theme_components_returns_named_instruments(self) -> None:
         client = RQDataClient()
