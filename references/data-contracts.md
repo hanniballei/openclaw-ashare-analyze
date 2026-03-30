@@ -107,7 +107,9 @@ Each index summary includes:
   "current_price": 0,
   "change_pct": 0,
   "indicators": {
-    "daily": {}
+    "daily": {},
+    "1h": {},
+    "5min": {}
   }
 }
 ```

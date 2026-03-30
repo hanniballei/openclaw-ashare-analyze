@@ -107,6 +107,11 @@ class AnalysisEngineContractsTest(unittest.TestCase):
         self.assertNotIn("market_breadth", payload)
         self.assertNotIn("sector_performance", payload)
         self.assertEqual(payload["northbound_flow"], {"today_net": 12.3, "source": "rqdata"})
+        self.assertEqual(
+            set(payload["indices"]["shanghai"]["indicators"].keys()),
+            {"daily", "1h", "5min"},
+        )
+        self.assertNotIn("4h", payload["indices"]["shanghai"]["indicators"])
 
     def test_us_payload_omits_cn_only_enrichment_fields(self) -> None:
         instrument = InstrumentMatch(symbol="NVDA", name="NVDA", instrument_type="US_STOCK", market="US")

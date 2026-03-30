@@ -47,19 +47,9 @@ def analyze_market_request(query: str, bars: int = 90) -> Dict[str, Any]:
     summaries = {}
     timestamp = None
     for key, instrument in indices.items():
-        daily = rqdata.fetch_candles(instrument.symbol, "1d", bars)
-        latest_bar = latest(daily)
-        previous = latest_bar.prev_close if latest_bar.prev_close is not None else (daily[-2].close if len(daily) > 1 else None)
-        timestamp = latest_bar.timestamp
-        summaries[key] = {
-            "symbol": instrument.symbol,
-            "name": instrument.name,
-            "current_price": latest_bar.close,
-            "change_pct": change_pct(latest_bar.close, previous),
-            "indicators": {
-                "daily": compute_indicator_snapshot(daily),
-            },
-        }
+        summary = _build_market_index_summary(instrument, rqdata, bars)
+        timestamp = summary["timestamp"]
+        summaries[key] = summary
     return {
         "scenario": "MARKET_OVERVIEW",
         "query": query,
@@ -379,6 +369,28 @@ def _build_us_asset_payload(instrument: InstrumentMatch, yfinance: YFinanceClien
         },
         "price_levels": find_price_levels(candles_daily),
         "fundamentals": yfinance.fetch_basics(instrument.symbol),
+    }
+
+
+def _build_market_index_summary(instrument: InstrumentMatch, rqdata: RQDataClient, bars: int) -> Dict[str, Any]:
+    candles_5m = rqdata.fetch_candles(instrument.symbol, "5m", bars)
+    candles_60m = rqdata.fetch_candles(instrument.symbol, "60m", bars)
+    candles_daily = rqdata.fetch_candles(instrument.symbol, "1d", bars)
+
+    latest_bar = latest(candles_daily)
+    previous = latest_bar.prev_close if latest_bar.prev_close is not None else (candles_daily[-2].close if len(candles_daily) > 1 else None)
+
+    return {
+        "symbol": instrument.symbol,
+        "name": instrument.name,
+        "timestamp": latest_bar.timestamp,
+        "current_price": latest_bar.close,
+        "change_pct": change_pct(latest_bar.close, previous),
+        "indicators": {
+            "daily": compute_indicator_snapshot(candles_daily),
+            "1h": compute_indicator_snapshot(candles_60m),
+            "5min": compute_indicator_snapshot(candles_5m),
+        },
     }
 
 

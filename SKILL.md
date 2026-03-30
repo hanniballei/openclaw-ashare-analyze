@@ -60,7 +60,9 @@ Use this skill to turn fresh market data into investor-friendly explanations. Mo
 
 - Pull fresh data before commenting on direction, setup, or operations.
 - Keep the JSON source-of-truth. Do not invent values that are missing.
-- Prefer the daily timeframe for the headline view, then use `4h`, `1h`, and `5min` to explain shorter-term rhythm.
+- Use multiple timeframes together instead of framing the analysis as day-chart-first only.
+- For stock / ETF / strategy / US-stock scenarios, combine `daily`, `4h`, `1h`, and `5min`: `daily` sets the broader structure, `4h` and `1h` confirm swing rhythm, and `5min` checks short-term confirmation or divergence.
+- For `MARKET_OVERVIEW`, combine `daily`, `1h`, and `5min` together: `daily` shows the broad trend/background, `1h` shows session rhythm, and `5min` captures the latest intraday push, fade, or reversal attempt.
 - Mention the exact level whenever giving an action recommendation.
 - Keep the language understandable for non-professional investors.
 - Treat all strategy output as educational analysis, not guaranteed returns.
@@ -134,6 +136,7 @@ For short follow-up messages such as "第二种"、"请排序"、"已经持有"�
 ### Market-wide work
 
 - Use `scripts/analyze_market.py` for Shanghai, Shenzhen, and ChiNext headline conditions.
+- The market payload now carries `daily`, `1h`, and `5min` indicators for each index, so broad-market answers should also be written as multi-timeframe analysis rather than daily-only commentary.
 - Read [references/data-sources.md](references/data-sources.md) when you need to check where index and northbound data come from.
 
 ### Theme and concept work
