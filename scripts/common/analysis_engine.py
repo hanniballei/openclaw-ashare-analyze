@@ -9,8 +9,16 @@ from .models import Candle, InstrumentMatch, PositionInput, SkillRuntimeError
 from .price_levels import find_price_levels
 from .rqdata_client import RQDataClient
 from .symbols import CN_INDEX_ALIASES, US_INDEX_ALIASES, extract_position, extract_symbol_token
-from .timeseries import aggregate_to_4h_from_60m, latest
+from .timeseries import aggregate_to_4h_from_60m, latest, sort_candles
 from .yfinance_client import YFinanceClient
+
+CANDLE_OUTPUT_LIMITS = {
+    "daily": 60,
+    "1h": 60,
+    "5min": 60,
+}
+US_DAILY_CANDLE_LIMIT = 30
+THEME_REPRESENTATIVE_LIMIT = 2
 
 
 def analyze_stock_request(query: str, symbol: Optional[str] = None, bars: int = 90) -> Dict[str, Any]:
@@ -178,9 +186,11 @@ def analyze_theme_request(query: str, theme: Optional[str] = None, bars: int = 9
     for rank, item in enumerate(ranking, start=1):
         item["rank"] = rank
 
+    representative_limit = min(THEME_REPRESENTATIVE_LIMIT, len(ranking))
+    instrument_by_symbol = {component.symbol: component for component in components}
     representative_stocks = [
-        next(item["snapshot"] for item in analyzed_components if item["snapshot"]["symbol"] == ranking_item["symbol"])
-        for ranking_item in ranking
+        _build_theme_representative_snapshot(instrument_by_symbol[ranking_item["symbol"]], rqdata, bars)
+        for ranking_item in ranking[:representative_limit]
     ]
 
     change_values = [item["snapshot"]["change_pct"] for item in analyzed_components if item["snapshot"]["change_pct"] is not None]
@@ -201,6 +211,7 @@ def analyze_theme_request(query: str, theme: Optional[str] = None, bars: int = 9
             "bars": bars,
             "top": top,
             "component_limit": component_limit,
+            "representative_limit": representative_limit,
             "score_components": [
                 "price_above_ma20",
                 "price_above_ma60",
@@ -327,26 +338,29 @@ def _build_cn_asset_payload(
         "amount": latest_bar.amount,
         "turnover_rate": None,
         "indicators": {
-            "daily": compute_indicator_snapshot(candles_daily),
-            "4h": compute_indicator_snapshot(candles_4h),
-            "1h": compute_indicator_snapshot(candles_60m),
-            "5min": compute_indicator_snapshot(candles_5m),
+            "daily": _build_indicator_payload(candles_daily),
+            "4h": _build_indicator_payload(candles_4h),
+            "1h": _build_indicator_payload(candles_60m),
+            "5min": _build_indicator_payload(candles_5m),
+        },
+        "candles": {
+            "daily": _build_candle_payload(candles_daily, CANDLE_OUTPUT_LIMITS["daily"]),
+            "1h": _build_candle_payload(candles_60m, CANDLE_OUTPUT_LIMITS["1h"]),
+            "5min": _build_candle_payload(candles_5m, CANDLE_OUTPUT_LIMITS["5min"]),
         },
         "price_levels": find_price_levels(candles_daily),
         "fundamentals": rqdata.fetch_fundamentals(instrument.symbol) if include_fundamentals else _empty_fundamentals(),
         "money_flow": rqdata.fetch_money_flow(instrument.symbol),
-        "billboard": rqdata.fetch_billboard(instrument.symbol) if include_billboard else [],
+        **({"billboard": rqdata.fetch_billboard(instrument.symbol)} if include_billboard else {}),
     }
 
 
 def _build_us_asset_payload(instrument: InstrumentMatch, yfinance: YFinanceClient, bars: int) -> Dict[str, Any]:
-    candles_5m = yfinance.fetch_candles(instrument.symbol, "5m", bars)
-    candles_60m = yfinance.fetch_candles(instrument.symbol, "60m", bars)
     candles_daily = yfinance.fetch_candles(instrument.symbol, "1d", bars)
-    candles_4h = aggregate_to_4h_from_60m(candles_60m)
 
     latest_bar = latest(candles_daily)
     previous = latest_bar.prev_close if latest_bar.prev_close is not None else (candles_daily[-2].close if len(candles_daily) > 1 else None)
+    daily_indicators = _build_indicator_payload(candles_daily)
 
     return {
         "symbol": instrument.symbol,
@@ -362,11 +376,10 @@ def _build_us_asset_payload(instrument: InstrumentMatch, yfinance: YFinanceClien
         "amount": latest_bar.amount,
         "turnover_rate": None,
         "indicators": {
-            "daily": compute_indicator_snapshot(candles_daily),
-            "4h": compute_indicator_snapshot(candles_4h),
-            "1h": compute_indicator_snapshot(candles_60m),
-            "5min": compute_indicator_snapshot(candles_5m),
+            "daily": daily_indicators,
         },
+        "candles": {"daily": _build_candle_payload(candles_daily, US_DAILY_CANDLE_LIMIT)},
+        "daily_summary": _build_daily_summary(candles_daily, daily_indicators),
         "price_levels": find_price_levels(candles_daily),
         "fundamentals": yfinance.fetch_basics(instrument.symbol),
     }
@@ -387,9 +400,14 @@ def _build_market_index_summary(instrument: InstrumentMatch, rqdata: RQDataClien
         "current_price": latest_bar.close,
         "change_pct": change_pct(latest_bar.close, previous),
         "indicators": {
-            "daily": compute_indicator_snapshot(candles_daily),
-            "1h": compute_indicator_snapshot(candles_60m),
-            "5min": compute_indicator_snapshot(candles_5m),
+            "daily": _build_indicator_payload(candles_daily),
+            "1h": _build_indicator_payload(candles_60m),
+            "5min": _build_indicator_payload(candles_5m),
+        },
+        "candles": {
+            "daily": _build_candle_payload(candles_daily, CANDLE_OUTPUT_LIMITS["daily"]),
+            "1h": _build_candle_payload(candles_60m, CANDLE_OUTPUT_LIMITS["1h"]),
+            "5min": _build_candle_payload(candles_5m, CANDLE_OUTPUT_LIMITS["5min"]),
         },
     }
 
@@ -473,9 +491,36 @@ def _score_component(
         "ma20": ma20,
         "ma60": ma60,
         "macd_histogram": macd_histogram,
-        "revenue_growth": fundamentals.get("revenue_growth"),
-        "profit_growth": fundamentals.get("profit_growth"),
-        "reasons": reasons,
+            "revenue_growth": fundamentals.get("revenue_growth"),
+            "profit_growth": fundamentals.get("profit_growth"),
+            "reasons": reasons,
+        }
+
+
+def _build_theme_representative_snapshot(instrument: InstrumentMatch, rqdata: RQDataClient, bars: int) -> Dict[str, Any]:
+    candles_5m = rqdata.fetch_candles(instrument.symbol, "5m", bars)
+    candles_60m = rqdata.fetch_candles(instrument.symbol, "60m", bars)
+    candles_daily = rqdata.fetch_candles(instrument.symbol, "1d", bars)
+    latest_bar = latest(candles_daily)
+    previous = latest_bar.prev_close if latest_bar.prev_close is not None else (candles_daily[-2].close if len(candles_daily) > 1 else None)
+
+    return {
+        "symbol": instrument.symbol,
+        "name": instrument.name,
+        "timestamp": latest_bar.timestamp,
+        "current_price": latest_bar.close,
+        "change_pct": change_pct(latest_bar.close, previous),
+        "indicators": {
+            "daily": _build_indicator_payload(candles_daily),
+            "1h": _build_indicator_payload(candles_60m),
+            "5min": _build_indicator_payload(candles_5m),
+        },
+        "candles": {
+            "daily": _build_candle_payload(candles_daily, CANDLE_OUTPUT_LIMITS["daily"]),
+            "1h": _build_candle_payload(candles_60m, CANDLE_OUTPUT_LIMITS["1h"]),
+            "5min": _build_candle_payload(candles_5m, CANDLE_OUTPUT_LIMITS["5min"]),
+        },
+        "money_flow": rqdata.fetch_money_flow(instrument.symbol),
     }
 
 
@@ -515,7 +560,7 @@ def _build_theme_component_analysis(instrument: InstrumentMatch, rqdata: RQDataC
             "current_price": latest_bar.close,
             "change_pct": change_pct(latest_bar.close, previous),
             "indicators": {
-                "daily": indicators,
+                "daily": _build_indicator_payload(candles_daily),
             },
             "money_flow": money_flow,
         },
@@ -532,3 +577,59 @@ def _empty_fundamentals() -> Dict[str, None]:
         "revenue_growth": None,
         "profit_growth": None,
     }
+
+
+def _build_indicator_payload(candles: List[Candle]) -> Dict[str, Any]:
+    snapshot = compute_indicator_snapshot(candles)
+    latest_timestamp = latest(candles).timestamp if candles else None
+    return {
+        "latest_timestamp": latest_timestamp,
+        **snapshot,
+    }
+
+
+def _build_candle_payload(candles: List[Candle], limit: int) -> Dict[str, Any]:
+    ordered = sort_candles(candles)
+    selected = ordered[-limit:] if limit > 0 else ordered
+    return {
+        "bar_count": len(selected),
+        "start_timestamp": selected[0].timestamp if selected else None,
+        "latest_timestamp": selected[-1].timestamp if selected else None,
+        "bars": [candle.to_dict() for candle in selected],
+    }
+
+
+def _build_daily_summary(candles: List[Candle], indicator_payload: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    ordered = sort_candles(candles)
+    closes = [candle.close for candle in ordered]
+    volumes = [candle.volume for candle in ordered]
+    latest_close = closes[-1] if closes else None
+    ma20 = indicator_payload["ma"]["ma20"]
+    recent_30 = ordered[-30:]
+    range_high = max((candle.high for candle in recent_30), default=None)
+    range_low = min((candle.low for candle in recent_30), default=None)
+    avg_volume_20 = (sum(volumes[-20:]) / len(volumes[-20:])) if volumes[-20:] else None
+
+    return {
+        "return_5d": _window_return(closes, 5),
+        "return_10d": _window_return(closes, 10),
+        "return_20d": _window_return(closes, 20),
+        "distance_to_ma20": ((latest_close - ma20) / ma20 * 100) if latest_close is not None and ma20 not in (None, 0) else None,
+        "position_in_30d_range": (
+            (latest_close - range_low) / (range_high - range_low)
+            if latest_close is not None and range_high is not None and range_low is not None and range_high != range_low
+            else None
+        ),
+        "volume_vs_20d_avg": (volumes[-1] / avg_volume_20) if volumes and avg_volume_20 not in (None, 0) else None,
+        "high_30d": range_high,
+        "low_30d": range_low,
+    }
+
+
+def _window_return(closes: List[float], window: int) -> Optional[float]:
+    if len(closes) <= window:
+        return None
+    base = closes[-window - 1]
+    if base == 0:
+        return None
+    return (closes[-1] - base) / base * 100

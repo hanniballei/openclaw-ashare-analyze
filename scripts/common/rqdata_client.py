@@ -18,6 +18,8 @@ from .symbols import (
 
 
 class RQDataClient:
+    _shared_module = None
+
     def __init__(self) -> None:
         self._module = None
 
@@ -123,23 +125,24 @@ class RQDataClient:
                 end_date=end_date,
             )
         except Exception:
-            return {"today_net": None, "5day_net": None, "source": "rqdata"}
+            return {"today_net": None, "5day_net": None, "latest_timestamp": None, "source": "rqdata"}
 
         records = self._records(table)
         if not records:
-            return {"today_net": None, "5day_net": None, "source": "rqdata"}
+            return {"today_net": None, "5day_net": None, "latest_timestamp": None, "source": "rqdata"}
 
         nets = [
             (self._float_or_none(record.get("buy_value")) or 0.0) - (self._float_or_none(record.get("sell_value")) or 0.0)
             for record in records
         ]
         if not nets:
-            return {"today_net": None, "5day_net": None, "source": "rqdata"}
+            return {"today_net": None, "5day_net": None, "latest_timestamp": None, "source": "rqdata"}
 
         recent = nets[-lookback_days:]
         return {
             "today_net": nets[-1],
             "5day_net": sum(recent),
+            "latest_timestamp": self._extract_latest_timestamp(records),
             "source": "rqdata",
         }
 
@@ -184,7 +187,7 @@ class RQDataClient:
             getattr(module, "current_stock_connect_quota", None),
             getattr(module, "get_stock_connect_quota", None),
         ]
-        records: List[Dict[str, Any]] = []
+        stale_cutoff = (date.today() - timedelta(days=14)).isoformat()
         for fetcher in fetchers:
             if fetcher is None:
                 continue
@@ -198,31 +201,12 @@ class RQDataClient:
                 else:
                     table = fetcher(connect=["hk_to_sh", "hk_to_sz"])
             except Exception:
-                records = []
                 continue
-            records = self._records(table)
-            if records:
-                break
+            payload = self._build_northbound_payload(self._records(table), stale_cutoff=stale_cutoff)
+            if payload is not None:
+                return payload
 
-        if not records:
-            return {"today_net": None, "source": "rqdata"}
-
-        northbound = [record for record in records if str(record.get("connect") or "") in {"hk_to_sh", "hk_to_sz"}]
-        if not northbound:
-            return {"today_net": None, "source": "rqdata"}
-
-        latest_marker = max(str(record.get("datetime") or record.get("date") or record.get("trading_date") or "") for record in northbound)
-        latest_rows = [
-            record
-            for record in northbound
-            if str(record.get("datetime") or record.get("date") or record.get("trading_date") or "") == latest_marker
-        ]
-        today_net = sum(
-            (self._float_or_none(record.get("buy_turnover")) or 0.0)
-            - (self._float_or_none(record.get("sell_turnover")) or 0.0)
-            for record in latest_rows
-        )
-        return {"today_net": today_net, "source": "rqdata"}
+        return {"today_net": None, "latest_timestamp": None, "source": "rqdata"}
 
     def fetch_etf_metadata(self, symbol: str) -> Dict[str, Any]:
         module = self._ensure_module()
@@ -356,6 +340,9 @@ class RQDataClient:
     def _ensure_module(self):
         if self._module is not None:
             return self._module
+        if RQDataClient._shared_module is not None:
+            self._module = RQDataClient._shared_module
+            return self._module
 
         self._load_dotenv()
         try:
@@ -390,6 +377,7 @@ class RQDataClient:
                 raise SkillRuntimeError("RQData 主备连接均失败。") from exc
 
         self._module = rqdatac
+        RQDataClient._shared_module = rqdatac
         return self._module
 
     def _match_records(self, records: List[Dict[str, Any]], query: str) -> Optional[InstrumentMatch]:
@@ -520,6 +508,50 @@ class RQDataClient:
             return self._float_or_none(table[-1])
         return None
 
+    def _extract_latest_timestamp(self, records: List[Dict[str, Any]]) -> Optional[str]:
+        if not records:
+            return None
+        markers = [
+            str(record.get("datetime") or record.get("trading_date") or record.get("date") or "").strip()
+            for record in records
+        ]
+        markers = [marker for marker in markers if marker]
+        if not markers:
+            return None
+        return max(markers)
+
+    def _build_northbound_payload(
+        self,
+        records: List[Dict[str, Any]],
+        stale_cutoff: Optional[str] = None,
+    ) -> Optional[Dict[str, Optional[float | str]]]:
+        if not records:
+            return None
+
+        northbound = [record for record in records if str(record.get("connect") or "") in {"hk_to_sh", "hk_to_sz"}]
+        if not northbound:
+            return None
+
+        latest_marker = self._extract_latest_timestamp(northbound)
+        if not latest_marker:
+            return None
+
+        latest_date = latest_marker.split(" ", 1)[0]
+        if stale_cutoff and latest_date < stale_cutoff:
+            return None
+
+        latest_rows = [
+            record
+            for record in northbound
+            if str(record.get("datetime") or record.get("date") or record.get("trading_date") or "") == latest_marker
+        ]
+        today_net = sum(
+            (self._float_or_none(record.get("buy_turnover")) or 0.0)
+            - (self._float_or_none(record.get("sell_turnover")) or 0.0)
+            for record in latest_rows
+        )
+        return {"today_net": today_net, "latest_timestamp": latest_marker, "source": "rqdata"}
+
     def _start_date(self, frequency: str, count: int) -> str:
         if frequency == "5m":
             days = max(20, count // 20)
@@ -534,9 +566,18 @@ class RQDataClient:
             from dotenv import load_dotenv  # type: ignore
         except ModuleNotFoundError:
             return
-        env_file = Path.cwd() / ".env"
-        if env_file.exists():
-            load_dotenv(env_file)
+        candidates = [
+            Path(__file__).resolve().parents[2] / ".env",
+            Path.cwd() / ".env",
+        ]
+        seen = set()
+        for env_file in candidates:
+            resolved = env_file.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if env_file.exists():
+                load_dotenv(env_file)
 
     def _float_or_zero(self, value: Any) -> float:
         return float(value) if value is not None else 0.0

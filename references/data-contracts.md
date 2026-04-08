@@ -28,15 +28,17 @@ The following scripts share the same China-market base shape:
 | `amount` | number | Latest bar turnover |
 | `turnover_rate` | number or null | Optional; may be null when source is missing |
 | `indicators` | object | `daily`, `4h`, `1h`, `5min` |
+| `candles` | object | Raw bars for `daily`, `1h`, `5min`, each with `bar_count`, `start_timestamp`, `latest_timestamp`, `bars` |
 | `price_levels` | object | `support`, `resistance` |
 | `fundamentals` | object | Valuation, profitability, and growth |
-| `money_flow` | object | `today_net`, `5day_net`, `source` |
+| `money_flow` | object | `today_net`, `5day_net`, `latest_timestamp`, `source` |
 
 ### Indicator section
 
 ```json
 {
   "daily": {
+    "latest_timestamp": "2026-03-28",
     "ma": {"ma5": 0, "ma10": 0, "ma20": 0, "ma60": 0},
     "macd": {"dif": 0, "dea": 0, "histogram": 0},
     "kdj": {"k": 0, "d": 0, "j": 0},
@@ -56,6 +58,30 @@ The following scripts share the same China-market base shape:
   "roe_ttm": null,
   "revenue_growth": null,
   "profit_growth": null
+}
+```
+
+### Candle section
+
+```json
+{
+  "daily": {
+    "bar_count": 60,
+    "start_timestamp": "2026-01-09 00:00:00",
+    "latest_timestamp": "2026-03-28 00:00:00",
+    "bars": [
+      {
+        "timestamp": "2026-01-09 00:00:00",
+        "open": 0,
+        "high": 0,
+        "low": 0,
+        "close": 0,
+        "volume": 0,
+        "amount": 0,
+        "prev_close": 0
+      }
+    ]
+  }
 }
 ```
 
@@ -96,7 +122,7 @@ ETF payloads do not include `billboard`.
 | `scenario` | string | `MARKET_OVERVIEW` |
 | `timestamp` | string | Latest available market snapshot timestamp |
 | `indices` | object | `shanghai`, `shenzhen`, `chinext` |
-| `northbound_flow` | object | `today_net`, `source` |
+| `northbound_flow` | object | `today_net`, `latest_timestamp`, `source` |
 
 Each index summary includes:
 
@@ -107,9 +133,14 @@ Each index summary includes:
   "current_price": 0,
   "change_pct": 0,
   "indicators": {
-    "daily": {},
-    "1h": {},
-    "5min": {}
+    "daily": {"latest_timestamp": "2026-03-28"},
+    "1h": {"latest_timestamp": "2026-03-28 13:30:00"},
+    "5min": {"latest_timestamp": "2026-03-28 14:55:00"}
+  },
+  "candles": {
+    "daily": {"bar_count": 60},
+    "1h": {"bar_count": 60},
+    "5min": {"bar_count": 60}
   }
 }
 ```
@@ -151,7 +182,7 @@ Strategy shape:
 | `timestamp` | string | Latest timestamp among representative stocks |
 | `selection_basis` | object | Theme ranking parameters and score components |
 | `ranking` | array | Top-N ranked theme stocks with score and reasons |
-| `representative_stocks` | array | A small representative-stock set for the theme |
+| `representative_stocks` | array | A small representative-stock set for the theme; only the first `representative_limit` names include raw bars |
 | `theme_summary` | object | Aggregate strength and flow summary |
 
 Selection basis shape:
@@ -161,6 +192,7 @@ Selection basis shape:
   "bars": 90,
   "top": 5,
   "component_limit": 25,
+  "representative_limit": 2,
   "score_components": [
     "price_above_ma20",
     "price_above_ma60",
@@ -203,11 +235,19 @@ Each representative stock includes:
   "current_price": 0,
   "change_pct": 0,
   "indicators": {
-    "daily": {}
+    "daily": {},
+    "1h": {},
+    "5min": {}
+  },
+  "candles": {
+    "daily": {"bar_count": 60},
+    "1h": {"bar_count": 60},
+    "5min": {"bar_count": 60}
   },
   "money_flow": {
     "today_net": 0,
     "5day_net": 0,
+    "latest_timestamp": "2026-03-28",
     "source": "rqdata"
   }
 }
@@ -267,4 +307,50 @@ Each ranking item includes:
 | `indices` | object | `道琼斯`, `标普`, `纳斯达克` |
 | `stock` | object | Present only when a specific US ticker is resolved |
 
-The optional `stock` object includes quote, indicators, price levels, and fundamentals, but does not include China-only `money_flow` or `billboard` fields.
+Each US asset object includes quote, `indicators.daily`, `candles.daily`, `daily_summary`, `price_levels`, and fundamentals, but does not include China-only `money_flow` or `billboard` fields.
+
+US assets are intentionally daily-only. They do not carry `4h`, `1h`, or `5min` sections.
+
+Example US asset shape:
+
+```json
+{
+  "symbol": "NVDA",
+  "name": "NVDA",
+  "timestamp": "2026-03-28 00:00:00",
+  "current_price": 0,
+  "indicators": {
+    "daily": {
+      "latest_timestamp": "2026-03-28 00:00:00",
+      "ma": {},
+      "macd": {},
+      "kdj": {},
+      "rsi": {},
+      "bollinger": {}
+    }
+  },
+  "candles": {
+    "daily": {
+      "bar_count": 30,
+      "start_timestamp": "2026-02-16 00:00:00",
+      "latest_timestamp": "2026-03-28 00:00:00",
+      "bars": []
+    }
+  },
+  "daily_summary": {
+    "return_5d": 0,
+    "return_10d": 0,
+    "return_20d": 0,
+    "distance_to_ma20": 0,
+    "position_in_30d_range": 0,
+    "volume_vs_20d_avg": 0,
+    "high_30d": 0,
+    "low_30d": 0
+  },
+  "price_levels": {
+    "support": [],
+    "resistance": []
+  },
+  "fundamentals": {}
+}
+```

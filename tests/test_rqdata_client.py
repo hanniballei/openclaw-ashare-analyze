@@ -4,8 +4,6 @@ import sys
 import unittest
 from pathlib import Path
 
-import pandas as pd
-
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -15,72 +13,86 @@ from common.models import ThemeMatch  # noqa: E402
 
 class _RQDataModuleStub:
     def get_capital_flow(self, order_book_ids, start_date=None, end_date=None, frequency="1d", market="cn"):
-        index = pd.MultiIndex.from_tuples(
-            [
-                ("600875.XSHG", pd.Timestamp("2026-03-20")),
-                ("600875.XSHG", pd.Timestamp("2026-03-21")),
-                ("600875.XSHG", pd.Timestamp("2026-03-22")),
-            ],
-            names=["order_book_id", "date"],
-        )
-        return pd.DataFrame(
-            [
-                {"buy_volume": 1.0, "buy_value": 100.0, "sell_volume": 1.0, "sell_value": 60.0},
-                {"buy_volume": 1.0, "buy_value": 130.0, "sell_volume": 1.0, "sell_value": 90.0},
-                {"buy_volume": 1.0, "buy_value": 80.0, "sell_volume": 1.0, "sell_value": 70.0},
-            ],
-            index=index,
-        )
+        return [
+            {"order_book_id": "600875.XSHG", "date": "2026-03-20", "buy_volume": 1.0, "buy_value": 100.0, "sell_volume": 1.0, "sell_value": 60.0},
+            {"order_book_id": "600875.XSHG", "date": "2026-03-21", "buy_volume": 1.0, "buy_value": 130.0, "sell_volume": 1.0, "sell_value": 90.0},
+            {"order_book_id": "600875.XSHG", "date": "2026-03-22", "buy_volume": 1.0, "buy_value": 80.0, "sell_volume": 1.0, "sell_value": 70.0},
+        ]
 
     def get_abnormal_stocks_detail(self, order_book_ids, start_date=None, end_date=None, sides=None, types=None, market="cn"):
-        index = pd.MultiIndex.from_tuples(
-            [
-                ("600875.XSHG", pd.Timestamp("2026-03-22")),
-                ("600875.XSHG", pd.Timestamp("2026-03-22")),
-            ],
-            names=["order_book_id", "date"],
-        )
-        return pd.DataFrame(
-            [
-                {
-                    "side": "buy",
-                    "rank": 1,
-                    "agency": "沪股通专用",
-                    "buy_value": 123456.0,
-                    "sell_value": None,
-                    "type": "U02",
-                    "reason": "连续三个交易日内，涨幅偏离值累计达20%",
-                },
-                {
-                    "side": "sell",
-                    "rank": 2,
-                    "agency": "机构专用",
-                    "buy_value": None,
-                    "sell_value": 654321.0,
-                    "type": "U02",
-                    "reason": "连续三个交易日内，涨幅偏离值累计达20%",
-                },
-            ],
-            index=index,
-        )
+        return [
+            {
+                "order_book_id": "600875.XSHG",
+                "date": "2026-03-22",
+                "side": "buy",
+                "rank": 1,
+                "agency": "沪股通专用",
+                "buy_value": 123456.0,
+                "sell_value": None,
+                "type": "U02",
+                "reason": "连续三个交易日内，涨幅偏离值累计达20%",
+            },
+            {
+                "order_book_id": "600875.XSHG",
+                "date": "2026-03-22",
+                "side": "sell",
+                "rank": 2,
+                "agency": "机构专用",
+                "buy_value": None,
+                "sell_value": 654321.0,
+                "type": "U02",
+                "reason": "连续三个交易日内，涨幅偏离值累计达20%",
+            },
+        ]
 
     def current_stock_connect_quota(self, connect=None, fields=None):
-        index = pd.MultiIndex.from_tuples(
-            [
-                (pd.Timestamp("2026-03-23 15:01:00"), "hk_to_sh"),
-                (pd.Timestamp("2026-03-23 15:01:00"), "hk_to_sz"),
-                (pd.Timestamp("2026-03-23 16:10:00"), "sh_to_hk"),
-            ],
-            names=["datetime", "connect"],
-        )
-        return pd.DataFrame(
-            [
-                {"buy_turnover": 100.0, "sell_turnover": 70.0, "quota_balance": 1.0, "quota_balance_ratio": 0.1},
-                {"buy_turnover": 80.0, "sell_turnover": 40.0, "quota_balance": 1.0, "quota_balance_ratio": 0.1},
-                {"buy_turnover": 999.0, "sell_turnover": 1.0, "quota_balance": 1.0, "quota_balance_ratio": 0.1},
-            ],
-            index=index,
-        )
+        return [
+            {
+                "datetime": "2026-04-07 15:01:00",
+                "connect": "hk_to_sh",
+                "buy_turnover": 100.0,
+                "sell_turnover": 70.0,
+                "quota_balance": 1.0,
+                "quota_balance_ratio": 0.1,
+            },
+            {
+                "datetime": "2026-04-07 15:01:00",
+                "connect": "hk_to_sz",
+                "buy_turnover": 80.0,
+                "sell_turnover": 40.0,
+                "quota_balance": 1.0,
+                "quota_balance_ratio": 0.1,
+            },
+            {
+                "datetime": "2026-03-23 16:10:00",
+                "connect": "sh_to_hk",
+                "buy_turnover": 999.0,
+                "sell_turnover": 1.0,
+                "quota_balance": 1.0,
+                "quota_balance_ratio": 0.1,
+            },
+        ]
+
+
+class _StaleNorthboundRQDataModuleStub(_RQDataModuleStub):
+    def current_stock_connect_quota(self, connect=None, fields=None):
+        return [
+            {
+                "datetime": "2024-05-10 15:01:00",
+                "connect": "hk_to_sh",
+                "buy_turnover": 100.0,
+                "sell_turnover": 70.0,
+            },
+            {
+                "datetime": "2024-05-10 15:01:00",
+                "connect": "hk_to_sz",
+                "buy_turnover": 80.0,
+                "sell_turnover": 40.0,
+            },
+        ]
+
+    def get_stock_connect_quota(self, connect=None, start_date=None, end_date=None):
+        return []
 
 
 class _ThemeRQDataModuleStub:
@@ -100,24 +112,19 @@ class _ThemeRQDataModuleStub:
             "航空": ["600118.XSHG", "000063.XSHE"],
         }
         symbols = mapping[concepts]
-        return pd.DataFrame(
-            [{"order_book_id": symbol} for symbol in symbols],
-            index=pd.Index([concepts] * len(symbols), name="concept"),
-        )
+        return [{"concept": concepts, "order_book_id": symbol} for symbol in symbols]
 
     def get_industry_mapping(self, source="citics_2019", date=None, market="cn"):
-        return pd.DataFrame(
-            [
-                {
-                    "first_industry_code": "10",
-                    "first_industry_name": "通信",
-                    "second_industry_code": "1010",
-                    "second_industry_name": "通信设备",
-                    "third_industry_code": "101001",
-                    "third_industry_name": "光通信设备",
-                }
-            ]
-        )
+        return [
+            {
+                "first_industry_code": "10",
+                "first_industry_name": "通信",
+                "second_industry_code": "1010",
+                "second_industry_name": "通信设备",
+                "third_industry_code": "101001",
+                "third_industry_name": "光通信设备",
+            }
+        ]
 
     def instruments(self, symbol):
         name = self._NAMES[symbol]
@@ -136,6 +143,7 @@ class RQDataClientTest(unittest.TestCase):
             {
                 "today_net": 10.0,
                 "5day_net": 90.0,
+                "latest_timestamp": "2026-03-22",
                 "source": "rqdata",
             },
         )
@@ -159,7 +167,15 @@ class RQDataClientTest(unittest.TestCase):
 
         result = client.fetch_northbound_flow()
 
-        self.assertEqual(result, {"today_net": 70.0, "source": "rqdata"})
+        self.assertEqual(result, {"today_net": 70.0, "latest_timestamp": "2026-04-07 15:01:00", "source": "rqdata"})
+
+    def test_fetch_northbound_flow_discards_stale_snapshots(self) -> None:
+        client = RQDataClient()
+        client._module = _StaleNorthboundRQDataModuleStub()
+
+        result = client.fetch_northbound_flow()
+
+        self.assertEqual(result, {"today_net": None, "latest_timestamp": None, "source": "rqdata"})
 
     def test_resolve_theme_matches_concept_and_alias_keywords(self) -> None:
         client = RQDataClient()

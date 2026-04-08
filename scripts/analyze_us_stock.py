@@ -5,15 +5,11 @@ import sys
 from pathlib import Path
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-from common.analysis_engine import main_us_stock  # noqa: E402
-from common.models import SkillRuntimeError  # noqa: E402
+from run import execute_legacy_wrapper  # noqa: E402
 
 
 if __name__ == "__main__":
-    try:
-        main_us_stock()
-    except SkillRuntimeError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    execute_legacy_wrapper("us_stock", "Analyze a US stock or index and emit structured JSON.")
